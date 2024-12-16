@@ -1,8 +1,7 @@
 #include <Arduino.h>
 #include <RGBLed.h>
 #include <RtcDS1302.h>
-#include <WiFi.h> 
-#include <ESP_Mail_Client.h>  
+#include <WiFi.h>   
 
 #define pinoSensor 36
 #define pinRele 13

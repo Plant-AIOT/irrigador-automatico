@@ -9,6 +9,7 @@
 #define BLUETOOTH_NAME "PlantAI"
 
 void setupBluetooth();
+void closeBluetooth();
 void handleBluetooth();
 void scanWifiNetworks();
 void saveWifiCredentials(const char* ssid, const char* password);
