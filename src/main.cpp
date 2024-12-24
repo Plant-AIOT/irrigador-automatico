@@ -9,11 +9,17 @@
   Amarelo: Nivel medio
   Verde: Nivel alto
 */
+
 #include <Arduino.h>
 #include <RGBLed.h>
 #include <RtcDS1302.h>
-#include <WiFi.h> 
+#include <WiFi.h>
 #include <Ultrasonic.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
 
 // pino potenciometro
 #define pinPotenciometro 36
@@ -36,20 +42,32 @@
 #define ledGreen 5
 #define ledYellow 2
 #define ledRed 15
+// Definindo os tamanhos da tela OLED 128x64
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
 
-// rtc para o horario
+// instanciando o display oled 128x64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// rtc para o horário
 ThreeWire myWire(data_rtc, clock_rtc, rst_rtc);
 RtcDS1302<ThreeWire> Rtc(myWire);
-void printDateTime(const RtcDateTime& dt);
-// potenciometro
+
+// assinatura de funções
+void printDate(const RtcDateTime& dt, char* buffer);
+void printTime(const RtcDateTime& dt, char* buffer);
+
+// Potenciômetro
 int valor_potenciometro = 0;
-// led rgb
+// LED RGB
 RGBLed led(red_pin, green_pin, blue_pin, RGBLed::COMMON_ANODE);
-// sensor HC-SR04
-Ultrasonic sensorNivel(pinTrigger, pinEcho);	
+// Sensor HC-SR04
+Ultrasonic sensorNivel(pinTrigger, pinEcho);
 int porcentagem_reservatorio = 0;
-// sensor de umidade
+// Sensor de umidade
 int sensor_umidade = 0;
+
 
 void setup() {
   Serial.begin(115200);
@@ -58,19 +76,21 @@ void setup() {
   pinMode(ledYellow, OUTPUT);
   pinMode(ledRed, OUTPUT);
 
+  // Inicializa o RTC
   Rtc.Begin();
   RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
-  printDateTime(compiled);
+  if (!Rtc.IsDateTimeValid()) {
+    Serial.println("RTC lost confidence in the DateTime!");
+    Rtc.SetDateTime(compiled);
+  }
 
-  if (!Rtc.IsDateTimeValid()) 
-    {
-        // Common Causes:
-        //    1) first time you ran and the device wasn't running yet
-        //    2) the battery on the device is low or even missing
-        Serial.println("RTC lost confidence in the DateTime!");
-        Rtc.SetDateTime(compiled);
-    }
-
+  // Inicializa o display OLED
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
+  }
+  display.clearDisplay();
+  display.display();
 }
 
 void loop() {
@@ -80,84 +100,93 @@ void loop() {
   sensor_umidade = analogRead(pinSensor);
   sensor_umidade = map(sensor_umidade, 0, 4095, 0, 100);
 
-  // imprime o horario atual
+  // Obtém o horário atual
   RtcDateTime now = Rtc.GetDateTime();
 
-  // modos de irrigacao
+  // Modos de irrigação
   if (valor_potenciometro < 33) {
     Serial.println("Irrigacao desligada");
     digitalWrite(pinRele, LOW);
     led.setColor(255, 0, 0);
-
-  }
-  else if (valor_potenciometro >= 33 && valor_potenciometro < 66) {
+  } else if (valor_potenciometro >= 33 && valor_potenciometro < 66) {
     Serial.println("Modo manual...");
     digitalWrite(pinRele, HIGH);
     led.setColor(0, 255, 0);
-  }
-  else {
-    Serial.println("Modo automatico...");
+  } else {
     led.setColor(0, 0, 255);
     // irriga quando o horario estiver entre 07:00 e 17:00 e a umidade do solo estiver menor que 70%
-    if ((now.Hour() >= 07 && now.Hour() <= 17)) {
-      if (sensor_umidade < 70) {
-        digitalWrite(pinRele, HIGH);
-      }
-      else {
-        digitalWrite(pinRele, LOW);
-      }
-    }
-    else {
+    if ((now.Hour() >= 07 && now.Hour() <= 17) && sensor_umidade < 70) {
+      digitalWrite(pinRele, HIGH);
+    } else {
       digitalWrite(pinRele, LOW);
     }
   }
-  
-  // nivel de agua
+
+  // Nível de água
   if (porcentagem_reservatorio < 25) {
     digitalWrite(ledRed, HIGH);
     digitalWrite(ledYellow, LOW);
     digitalWrite(ledGreen, LOW);
-  }
+  } 
   else if (porcentagem_reservatorio >= 25 && porcentagem_reservatorio < 75) {
     digitalWrite(ledRed, HIGH);
     digitalWrite(ledYellow, HIGH);
     digitalWrite(ledGreen, LOW);
-  }
+  } 
   else {
     digitalWrite(ledRed, HIGH);
     digitalWrite(ledYellow, HIGH);
     digitalWrite(ledGreen, HIGH);
   }
-  // imprime o horario atual
-  Serial.print("Horario atual: ");
-  printDateTime(now);
-  Serial.println();
-  // imprime o valor do sensor de umidad
-  Serial.print("Umidade do solo: ");
-  Serial.print(sensor_umidade);
-  Serial.println("%");
-  // imprime o valor do sensor de nivel
-  Serial.print("Nivel de agua: ");
-  Serial.print(porcentagem_reservatorio); 
-  Serial.println("%");
-  Serial.println();
+
+  // Atualiza o display OLED
+  display.clearDisplay();
+  display.setFont(NULL);
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+
+  char dateBuffer[12];
+  char timeBuffer[9];
+  
+  printDate(now, dateBuffer);
+  display.setCursor(0, 0);
+  display.print("Data: ");
+  display.println(dateBuffer);
+
+  printTime(now, timeBuffer);
+  display.setCursor(0, 10);
+  display.print("Hora: ");
+  display.println(timeBuffer);
+
+  display.setCursor(0, 20);
+  display.print("Umidade: ");
+  display.print(sensor_umidade);
+  display.println("%");
+
+  display.setCursor(0, 30); 
+  display.print("Nivel Agua: ");
+  display.print(porcentagem_reservatorio);
+  display.println("%");
+
+  display.display();
 
   delay(1000);
 }
 
-// funcao que imprime a data atual
-void printDateTime(const RtcDateTime& dt)
-{
-    char datestring[26];
+// Função que imprime a data atual em um buffer no formato dd/mm/aaaa 
+void printDate(const RtcDateTime& dt, char* buffer) {
+  snprintf_P(buffer, 12,
+             PSTR("%02u/%02u/%04u"),
+             dt.Day(),
+             dt.Month(),
+             dt.Year());
+}
 
-    snprintf_P(datestring, 
-            countof(datestring),
-            PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
-            dt.Month(),
-            dt.Day(),
-            dt.Year(),
-            dt.Hour(),
-            dt.Minute(),
-            dt.Second() );
-    Serial.print(datestring);
+// Função que imprime a hora atual em um buffer no formato hh:mm:ss
+void printTime(const RtcDateTime& dt, char* buffer) {
+  snprintf_P(buffer, 12,
+             PSTR("%02u:%02u:%02u"),
+             dt.Hour(),
+             dt.Minute(),
+             dt.Second());
 }
